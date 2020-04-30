@@ -1,0 +1,184 @@
+#!/usr/bin/tclsh
+#
+# This script was provided by Gabriel Cornilescu:
+# http://www.nmrfam.wisc.edu/directory.html
+# G.C. 2012
+
+if {$argc != 2} \
+   {
+    puts stderr ""
+    puts stderr "usage: "
+    puts stderr "bmrb2talos.tclsh file.str type"
+    puts stderr ""
+    puts stderr "where 'type' is 2 or 3 for input in format NMR-STAR v2.1 or v3.1, respectively"
+    puts stderr ""
+    exit
+   }
+
+set inFile [lindex $argv 0]
+set inFileID [open $inFile r]
+
+set type [lindex $argv 1]
+
+if {$type == 2} \
+   {
+# these work with BMRB's nmrstar2.1 format (e.g. bmr6011.str) and PINE:
+    set resID_col 2
+    set resType_col 3
+    set atName_col 4
+    set shift_col 6
+    set seqFlag "_Mol_residue_sequence"
+    set csFlag "_Chem_shift_ambiguity_code"
+   } \
+elseif {$type == 3} \
+   {
+# these work with BMRB's nmrstar3.1 format (e.g. bmr15000.str, bmr17769.str)
+    set resID_col 5
+    set resType_col 6
+    set atName_col 7
+    set shift_col 10
+    set seqFlag "_Entity.Polymer_seq_one_letter_code"
+    set csFlag "_Atom_chem_shift.Assigned_chem_shift_list_ID"
+       } \
+else \
+   {
+    puts stderr "\nEdit the script to input correct column numbering in the BMRB input file, if needed!\n"
+
+# set manually the column numbers below (col. numbering starts with 0)
+# for a different str (BMRB) format and uncomment the lines:
+#    set resID_col x
+#    set resType_col x
+#    set atName_col x
+#    set shift_col x
+   }
+
+#
+# sequence offset number (to match pdb sequence, if needed):
+
+set match 0
+
+#
+# atom type assignments needed for TALOS+:
+
+set list "N H HN HA HA1 HA2 HA3 CA CB C"
+
+while { [eof $inFileID] == 0} \
+   {
+    gets $inFileID line
+    set test [lindex $line 0]
+
+    if {$test == $seqFlag} \
+       {
+        gets $inFileID line
+        set count 0
+        set end 0
+	set dlist ""
+
+        while { $end == 0 } \
+           {
+            gets $inFileID line
+
+            set first [string trim [lindex $line 0] ]
+            set seq_1 [string trim [string range $line 0 9] ]
+            set seq_2 [string trim [string range $line 10 end] ]
+
+            if {$first != ";"} \
+               {
+                incr count
+
+                lappend seqList $seq_1
+
+                if {$seq_2 != ""} \
+                   {
+                    lappend seqList $seq_2
+                   }
+
+		append dlist "[string length [string trim $line]] "
+               }
+
+            if {$first == ";"} \
+               {
+                set end 1
+               }
+           }
+
+        set last  [lindex $dlist [expr [llength $dlist] - 1]]
+
+        set len   [expr ceil($last/10.0)]
+
+        if {$len == 1} \
+           {
+            set string_no [expr $count*2 - 1]
+           } \
+        elseif {$len == 2} \
+           {
+            set string_no [expr $count*2]
+           }
+
+        set final [expr ceil($string_no/5.0)]
+
+        for {set i 0} {$i < $final} {incr i} \
+            {
+             set j [expr $i*5]
+             set row [expr $j + 4]
+
+             puts "DATA SEQUENCE [lrange $seqList $j $row]"
+            }
+        }
+
+    if {$test == $csFlag} \
+       {
+        puts ""
+        puts "VARS RESID RESNAME ATOMNAME SHIFT"
+        puts "FORMAT %4d %1s %4s %8.3f"
+        puts ""
+
+        gets $inFileID line
+        gets $inFileID line
+
+#puts "line=$line"
+
+        while {[gets $inFileID line] > 0} \
+           {
+            set resID [expr [lindex $line $resID_col] + $match]
+            set resType [lindex $line $resType_col]
+            set atName [lindex $line $atName_col]
+
+            if {$atName == "H"} {set atName HN}
+
+            set shift [lindex $line $shift_col]
+
+            switch $resType \
+               {
+                "ALA" {set resType "A"}
+                "ARG" {set resType "R"}
+                "ASN" {set resType "N"}
+                "ASP" {set resType "D"}
+                "CYS" {set resType "C"}
+                "GLN" {set resType "Q"}
+                "GLU" {set resType "E"}
+                "GLY" {set resType "G"}
+                "HIS" {set resType "H"}
+                "ILE" {set resType "I"}
+                "LEU" {set resType "L"}
+                "LYS" {set resType "K"}
+                "MET" {set resType "M"}
+                "PHE" {set resType "F"}
+                "PRO" {set resType "P"}
+                "SER" {set resType "S"}
+                "THR" {set resType "T"}
+                "TRP" {set resType "W"}
+                "TYR" {set resType "Y"}
+                "VAL" {set resType "V"}
+               }
+
+            if {[lsearch $list $atName] >= 0 && $shift != "-"} \
+               {
+                puts [format "%5s %3s %-3s %9.3f" $resID $resType $atName $shift]
+               }
+           }
+       }
+   }
+
+exit
+
